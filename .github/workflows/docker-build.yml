@@ -1,0 +1,81 @@
+name: Docker Build
+
+# SCRUM-13: build the Docker image on every push to main and every PR,
+# and push it to Artifactory on merges to main.
+# A failing build blocks the PR when this workflow is set as a required
+# status check in the repo's branch protection settings.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_IMAGE: ticket-intake-api:${{ github.sha }}
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          # Layer caching via the GitHub Actions cache — keeps rebuilds
+          # fast when only app code changes and the requirements.txt
+          # layer is unchanged.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Proves the image actually starts and serves before we ever push
+      # it anywhere. Catches missing files / import errors early.
+      - name: Smoke test the container
+        run: |
+          docker run -d --name smoke -p 8000:8000 "$LOCAL_IMAGE"
+          for _ in $(seq 1 30); do
+            if curl -fsS localhost:8000/health > /dev/null; then
+              echo "container is serving"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "container never became healthy"
+          docker logs smoke
+          exit 1
+
+      - name: Log in to Artifactory
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ARTIFACTORY_REGISTRY }}
+          username: ${{ secrets.ARTIFACTORY_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_TOKEN }}
+
+      # Tagged with the git SHA only — no mutable :latest — so a tag can
+      # never be repointed after CI has tested and smoke-tested it.
+      - name: Push to Artifactory
+        if: env.PUBLISH == 'true'
+        run: |
+          IMAGE="${{ vars.ARTIFACTORY_REGISTRY }}/${{ vars.ARTIFACTORY_REPO }}/ticket-intake-api:$GITHUB_SHA"
+          docker tag "$LOCAL_IMAGE" "$IMAGE"
+          docker push "$IMAGE"
+          {
+            echo "### Image pushed"
+            echo ""
+            echo "- tag: \`$IMAGE\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -21,6 +21,25 @@ jobs:
     env:
       LOCAL_IMAGE: ticket-intake-api:${{ github.sha }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ticket_intake
+    # The app connects to Postgres on startup (creates tables via
+    # SQLAlchemy metadata). Without a real database here, the smoke
+    # test container crashes on boot and /health never responds —
+    # same pattern Service B's CI uses for its own Postgres dependency.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ticket_intake
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -44,9 +63,13 @@ jobs:
 
       # Proves the image actually starts and serves before we ever push
       # it anywhere. Catches missing files / import errors early.
+      # --network host lets this sibling container reach the Postgres
+      # service, which GitHub Actions exposes on the runner's localhost.
       - name: Smoke test the container
         run: |
-          docker run -d --name smoke -p 8000:8000 "$LOCAL_IMAGE"
+          docker run -d --name smoke --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            "$LOCAL_IMAGE"
           for _ in $(seq 1 30); do
             if curl -fsS localhost:8000/health > /dev/null; then
               echo "container is serving"

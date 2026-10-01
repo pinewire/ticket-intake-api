@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-intake-api
+  labels:
+    app: ticket-intake-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ticket-intake-api
+  template:
+    metadata:
+      labels:
+        app: ticket-intake-api
+    spec:
+      # Lets the cluster pull the image from our private Artifactory registry.
+      # Create this secret once per namespace:
+      #   kubectl create secret docker-registry artifactory-pull-secret \
+      #     --docker-server=<ARTIFACTORY_REGISTRY> \
+      #     --docker-username=<ARTIFACTORY_USERNAME> \
+      #     --docker-password=<ARTIFACTORY_TOKEN>
+      imagePullSecrets:
+        - name: artifactory-pull-secret
+      containers:
+        - name: ticket-intake-api
+          # Replace <ARTIFACTORY_REGISTRY>/<ARTIFACTORY_REPO> with the real
+          # values, and <GIT_SHA> with the commit SHA tag CI pushed.
+          # This is deliberately NOT :latest — same reasoning as the CI
+          # workflow: a tag should never silently change underneath a
+          # running deployment.
+          image: <ARTIFACTORY_REGISTRY>/<ARTIFACTORY_REPO>/ticket-intake-api:<GIT_SHA>
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ticket-intake-api-secrets
+                  key: database-url
+          # Readiness: don't send traffic to a pod until it can actually
+          # serve. Liveness: restart a pod that's gone unresponsive.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

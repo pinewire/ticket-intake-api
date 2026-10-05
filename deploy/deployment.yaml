@@ -38,11 +38,13 @@ spec:
                 secretKeyRef:
                   name: ticket-intake-api-secrets
                   key: database-url
-          # Readiness: don't send traffic to a pod until it can actually
-          # serve. Liveness: restart a pod that's gone unresponsive.
+          # Readiness (/ready, checks the DB): don't send traffic to a pod
+          # until it can actually serve. Liveness (/health, no DB check):
+          # restart a pod only if the process itself is unresponsive, so a
+          # database outage doesn't cause restarts.
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10

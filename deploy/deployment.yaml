@@ -14,22 +14,22 @@ spec:
       labels:
         app: ticket-intake-api
     spec:
-      # Lets the cluster pull the image from our private Artifactory registry.
-      # Create this secret once per namespace:
-      #   kubectl create secret docker-registry artifactory-pull-secret \
-      #     --docker-server=<ARTIFACTORY_REGISTRY> \
-      #     --docker-username=<ARTIFACTORY_USERNAME> \
-      #     --docker-password=<ARTIFACTORY_TOKEN>
+      # Lets the cluster pull the image from GitHub Container Registry (GHCR).
+      # Needed while the package is private. Create this secret once per
+      # namespace, using a GitHub token that has read:packages:
+      #   kubectl create secret docker-registry ghcr-pull-secret \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<GITHUB_USERNAME> \
+      #     --docker-password=<GITHUB_TOKEN_WITH_READ_PACKAGES>
       imagePullSecrets:
-        - name: artifactory-pull-secret
+        - name: ghcr-pull-secret
       containers:
         - name: ticket-intake-api
-          # Replace <ARTIFACTORY_REGISTRY>/<ARTIFACTORY_REPO> with the real
-          # values, and <GIT_SHA> with the commit SHA tag CI pushed.
+          # Replace <GIT_SHA> with the commit SHA tag CI pushed to GHCR.
           # This is deliberately NOT :latest — same reasoning as the CI
           # workflow: a tag should never silently change underneath a
           # running deployment.
-          image: <ARTIFACTORY_REGISTRY>/<ARTIFACTORY_REPO>/ticket-intake-api:<GIT_SHA>
+          image: ghcr.io/pinewire/ticket-intake-api:<GIT_SHA>
           ports:
             - containerPort: 8000
           env:

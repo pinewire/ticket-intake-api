@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ticket-intake-api
+  labels:
+    app: ticket-intake-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ticket-intake-api
+  template:
+    metadata:
+      labels:
+        app: ticket-intake-api
+    spec:
+      # Lets the cluster pull the image from GitHub Container Registry (GHCR).
+      # Needed while the package is private. Create this secret once per
+      # namespace, using a GitHub token that has read:packages:
+      #   kubectl create secret docker-registry ghcr-pull-secret \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<GITHUB_USERNAME> \
+      #     --docker-password=<GITHUB_TOKEN_WITH_READ_PACKAGES>
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: ticket-intake-api
+          # Replace <GIT_SHA> with the commit SHA tag CI pushed to GHCR.
+          # This is deliberately NOT :latest — same reasoning as the CI
+          # workflow: a tag should never silently change underneath a
+          # running deployment.
+          image: ghcr.io/pinewire/ticket-intake-api:<GIT_SHA>
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ticket-intake-api-secrets
+                  key: database-url
+          # Readiness (/ready, checks the DB): don't send traffic to a pod
+          # until it can actually serve. Liveness (/health, no DB check):
+          # restart a pod only if the process itself is unresponsive, so a
+          # database outage doesn't cause restarts.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

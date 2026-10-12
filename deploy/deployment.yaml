@@ -58,6 +58,9 @@ spec:
             requests:
               cpu: "100m"
               memory: "128Mi"
+            # No CPU limit on purpose: CPU limits throttle the pod (the kernel
+            # stops scheduling it) instead of protecting it, which causes
+            # latency spikes for an I/O-bound API under load. The request
+            # still reserves capacity; the memory limit stays.
             limits:
-              cpu: "500m"
               memory: "256Mi"

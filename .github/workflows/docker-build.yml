@@ -1,7 +1,7 @@
 name: Docker Build
 
 # SCRUM-13: build the Docker image on every push to main and every PR,
-# and push it to Artifactory on merges to main.
+# and push it to GitHub Container Registry (GHCR) on merges to main.
 # A failing build blocks the PR when this workflow is set as a required
 # status check in the repo's branch protection settings.
 on:
@@ -18,6 +18,10 @@ jobs:
   build:
     name: Build image
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN needs packages: write to push to GHCR.
+    permissions:
+      contents: read
+      packages: write
     env:
       LOCAL_IMAGE: ticket-intake-api:${{ github.sha }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -81,20 +85,23 @@ jobs:
           docker logs smoke
           exit 1
 
-      - name: Log in to Artifactory
+      # GHCR needs no stored credentials: the built-in GITHUB_TOKEN is used.
+      - name: Log in to GHCR
         if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
-          registry: ${{ vars.ARTIFACTORY_REGISTRY }}
-          username: ${{ secrets.ARTIFACTORY_USERNAME }}
-          password: ${{ secrets.ARTIFACTORY_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tagged with the git SHA only — no mutable :latest — so a tag can
       # never be repointed after CI has tested and smoke-tested it.
-      - name: Push to Artifactory
+      - name: Push to GHCR
         if: env.PUBLISH == 'true'
         run: |
-          IMAGE="${{ vars.ARTIFACTORY_REGISTRY }}/${{ vars.ARTIFACTORY_REPO }}/ticket-intake-api:$GITHUB_SHA"
+          # GHCR image names must be lowercase.
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          IMAGE="ghcr.io/${OWNER}/ticket-intake-api:$GITHUB_SHA"
           docker tag "$LOCAL_IMAGE" "$IMAGE"
           docker push "$IMAGE"
           {

@@ -9,7 +9,9 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://postgres:postgres@localhost:5432/ticket_intake",
 )
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+# pool_pre_ping tests a pooled connection before using it, so after a database
+# restart the first request reconnects instead of failing on a dead connection.
+engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
 
 AsyncSessionLocal = async_sessionmaker(
     engine, expire_on_commit=False, class_=AsyncSession
